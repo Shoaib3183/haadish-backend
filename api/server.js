@@ -1,4 +1,3 @@
-// api/server.js (ESM) — production-safe CORS + preflight
 import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
@@ -10,19 +9,19 @@ const app = express();
 
 // === Allowed Origins ===
 const allowedOrigins = [
-  'http://localhost:3000',        // Development frontend
-  'https://www.haadish.site',     // LIVE domain
-  'http://www.haadish.site'       // In case non-https access
+  'http://localhost:3000',
+  'https://www.haadish.site',
+  'http://www.haadish.site'
 ];
 
-// Enable CORS (production safe)
+// Enable CORS
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+      callback(null, true);
     } else {
-      return callback(new Error('CORS blocked: ' + origin), false);
+      callback(new Error('CORS blocked: ' + origin), false);
     }
   },
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
@@ -30,28 +29,27 @@ app.use(cors({
   credentials: true
 }));
 
-// Preflight safe
+// Preflight
 app.options('*', cors());
 
-// Body parser
+// Body Parser
 app.use(express.json());
 
-
-// Posts Route
+// API Routes only
 app.use('/api/admin', adminAuthRoute);
 app.use('/api/posts', postsRoute);
 
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 
-try {
-  await mongoose.connect(MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+mongoose.connect(MONGO_URI)
+  .then(() => {
+    console.log('MongoDB connected');
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
   });
-  console.log('MongoDB connected');
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-} catch (err) {
-  console.error('MongoDB connection error:', err.message);
-  process.exit(1);
-}
