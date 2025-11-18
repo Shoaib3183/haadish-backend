@@ -12,7 +12,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'https://www.haadish.site',
   'http://www.haadish.site',
-  'http://haadish.site'
+  'https://haadish.site'
 ];
 
 // Enable CORS
