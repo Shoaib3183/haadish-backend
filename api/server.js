@@ -36,10 +36,9 @@ app.options('*', cors());
 // Body parser
 app.use(express.json());
 
-// Admin Auth Route (correct position here)
-app.use('/api/admin', adminAuthRoute);
 
 // Posts Route
+app.use('/api/admin', adminAuthRoute);
 app.use('/api/posts', postsRoute);
 
 const PORT = process.env.PORT || 5000;
