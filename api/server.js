@@ -43,6 +43,11 @@ app.use('/api/posts', postsRoute);
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log('MongoDB connected');
