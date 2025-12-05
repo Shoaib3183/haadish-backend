@@ -14,47 +14,32 @@ function makeSlug(text) {
   if (!text) return String(Date.now());
   let s = String(text).toLowerCase().trim();
 
-  // replace whitespace with dash
   s = s.replace(/\s+/g, '-');
-
-  // remove characters that are not word characters or dash
-  // Note: \w matches [A-Za-z0-9_], so non-latin characters will be stripped.
-  // If that makes slug empty (for Urdu text), we'll fallback to timestamp below.
   s = s.replace(/[^\w\-]+/g, '');
-
-  // collapse multiple dashes
   s = s.replace(/\-+/g, '-');
-
-  // remove leading/trailing dashes
   s = s.replace(/^\-+|\-+$/g, '');
 
-  if (!s) {
-    // attempt a very simple transliteration-ish fallback using encodeURIComponent
-    // (not perfect) — but safest fallback is timestamp
-    s = String(Date.now());
-  }
-
+  if (!s) s = String(Date.now());
   return s;
 }
 
 /**
- * Ensure slug uniqueness: if slug exists, append short unique suffix.
+ * Ensure slug uniqueness
  */
 async function ensureUniqueSlug(baseSlug) {
   let slug = baseSlug;
   const exists = await Post.findOne({ slug }).lean();
   if (!exists) return slug;
 
-  // append short timestamp slice to make unique
   const suffix = String(Date.now()).slice(-5);
   slug = `${slug}-${suffix}`;
-  // double-check (rare)
+
   const again = await Post.findOne({ slug }).lean();
   if (!again) return slug;
 
-  // final fallback: timestamp
   return `${baseSlug}-${Date.now()}`;
 }
+
 
 // ---------------------- ROUTES ----------------------
 
@@ -83,24 +68,30 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET all by category (no pagination)
+
+// GET all by category
 router.get('/all', async (req, res) => {
   try {
     const { category } = req.query;
     if (!category) return res.status(400).json({ error: 'category required' });
 
-    const posts = await Post.find({ category }).sort({ createdAt: -1 }).lean();
+    const posts = await Post.find({ category })
+      .sort({ createdAt: -1 })
+      .lean();
+
     res.json(posts);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+
 // GET single by id or slug
 router.get('/single', async (req, res) => {
   try {
     const { id, slug } = req.query;
     let post = null;
+
     if (id) {
       post = await Post.findById(id).lean();
     } else if (slug) {
@@ -111,10 +102,12 @@ router.get('/single', async (req, res) => {
 
     if (!post) return res.status(404).json({ error: 'Not found' });
     res.json(post);
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // SEARCH
 router.get('/search', async (req, res) => {
@@ -123,6 +116,7 @@ router.get('/search', async (req, res) => {
     if (!q) return res.json([]);
 
     const regex = new RegExp(q, 'i');
+
     const posts = await Post.find({
       $or: [
         { title: regex },
@@ -130,20 +124,24 @@ router.get('/search', async (req, res) => {
         { author: regex },
         { lines: { $elemMatch: { $regex: regex } } }
       ]
-    }).sort({ createdAt: -1 }).lean();
+    })
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.json(posts);
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // CREATE
 router.post('/', async (req, res) => {
   try {
     const payload = { ...req.body };
 
-    // --- image normalization (same as above) ---
+    // Images normalization
     payload.headerImageUrl =
       payload.headerImageUrl ||
       payload.headerImage ||
@@ -168,10 +166,9 @@ router.post('/', async (req, res) => {
       payload.bodyImage3 ||
       null;
 
-    // keep coverImageUrl if sent
     payload.coverImageUrl = payload.coverImageUrl || payload.headerImageUrl || null;
 
-    // slug generation as before...
+    // 🌟 SLUG GENERATION
     if (!payload.slug) {
       const base = payload.title || (payload.lines && payload.lines[0]) || String(Date.now());
       const rawSlug = makeSlug(base);
@@ -185,6 +182,7 @@ router.post('/', async (req, res) => {
     await post.save();
 
     res.status(201).json(post);
+
   } catch (err) {
     if (err && err.code === 11000) {
       return res.status(400).json({ error: 'Duplicate key error', details: err.keyValue });
@@ -193,12 +191,13 @@ router.post('/', async (req, res) => {
   }
 });
 
-// UPDATE
+
+// UPDATE  (with slug generation)
 router.put('/:id', async (req, res) => {
   try {
     const payload = { ...req.body };
 
-    // same normalization so update also saves images
+    // Images normalization
     payload.headerImageUrl =
       payload.headerImageUrl ||
       payload.headerImage ||
@@ -223,16 +222,37 @@ router.put('/:id', async (req, res) => {
       payload.bodyImage3 ||
       null;
 
-    payload.coverImageUrl = payload.coverImageUrl || payload.headerImageUrl || null;
+    payload.coverImageUrl =
+      payload.coverImageUrl || payload.headerImageUrl || null;
 
-    // Now update, use payload
-    const updated = await Post.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+    // 🌟 SLUG GENERATION ON UPDATE
+    if (!payload.slug) {
+      const base =
+        payload.title ||
+        (payload.lines && payload.lines[0]) ||
+        String(Date.now());
+
+      const rawSlug = makeSlug(base);
+      payload.slug = await ensureUniqueSlug(rawSlug);
+    } else {
+      payload.slug = makeSlug(payload.slug);
+      payload.slug = await ensureUniqueSlug(payload.slug);
+    }
+
+    const updated = await Post.findByIdAndUpdate(
+      req.params.id,
+      payload,
+      { new: true, runValidators: true }
+    );
+
     if (!updated) return res.status(404).json({ error: 'Not found' });
     res.json(updated);
+
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
+
 
 // DELETE
 router.delete('/:id', async (req, res) => {
@@ -240,18 +260,22 @@ router.delete('/:id', async (req, res) => {
     const removed = await Post.findByIdAndDelete(req.params.id);
     if (!removed) return res.status(404).json({ error: 'Not found' });
     res.json({ message: 'Deleted' });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// CHECK DUPLICATE (same logic as earlier)
+
+// CHECK DUPLICATE
 router.post('/check-duplicate', async (req, res) => {
   try {
     const { category, identifier, excludeId } = req.body;
-    if (!category || !identifier) return res.status(400).json({ error: 'category and identifier required' });
+    if (!category || !identifier)
+      return res.status(400).json({ error: 'category and identifier required' });
 
     let filter = { category };
+
     if (['DoLine', 'CharLine'].includes(category)) {
       filter['lines.0'] = identifier;
     } else if (['Latifay', 'Aqwal'].includes(category)) {
@@ -264,6 +288,7 @@ router.post('/check-duplicate', async (req, res) => {
 
     const found = await Post.findOne(filter).lean();
     res.json({ duplicate: !!found });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
