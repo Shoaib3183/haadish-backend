@@ -5,21 +5,24 @@ import Post from '../models/Post.js';
 const router = express.Router();
 
 /**
- * Helper: make a safe slug from given text.
- * - tries to use title or first line
- * - replaces spaces with dashes, removes unsafe chars
- * - if result is empty (e.g. only Urdu/Unicode removed), fallback to timestamp
+ * BETTER URDU-FRIENDLY SLUG
  */
 function makeSlug(text) {
   if (!text) return String(Date.now());
-  let s = String(text).toLowerCase().trim();
 
+  let s = String(text).trim();
+
+  // limit length
+  s = s.slice(0, 60);
+
+  // replace spaces with dash
   s = s.replace(/\s+/g, '-');
-  s = s.replace(/[^\w\-]+/g, '');
-  s = s.replace(/\-+/g, '-');
-  s = s.replace(/^\-+|\-+$/g, '');
+
+  // remove dangerous URL chars only
+  s = s.replace(/[%?#/\\]+/g, '');
 
   if (!s) s = String(Date.now());
+
   return s;
 }
 
@@ -93,7 +96,7 @@ router.get('/single', async (req, res) => {
     let post = null;
 
     if (id) {
-      post = await Post.findById(id).lean();
+      post = await Post.findByById(id).lean();
     } else if (slug) {
       post = await Post.findOne({ slug }).lean();
     } else {
@@ -168,7 +171,7 @@ router.post('/', async (req, res) => {
 
     payload.coverImageUrl = payload.coverImageUrl || payload.headerImageUrl || null;
 
-    // 🌟 SLUG GENERATION
+    // SLUG GENERATION
     if (!payload.slug) {
       const base = payload.title || (payload.lines && payload.lines[0]) || String(Date.now());
       const rawSlug = makeSlug(base);
@@ -192,7 +195,7 @@ router.post('/', async (req, res) => {
 });
 
 
-// UPDATE  (with slug generation)
+// UPDATE  (with improved slug logic)
 router.put('/:id', async (req, res) => {
   try {
     const payload = { ...req.body };
@@ -225,8 +228,15 @@ router.put('/:id', async (req, res) => {
     payload.coverImageUrl =
       payload.coverImageUrl || payload.headerImageUrl || null;
 
-    // 🌟 SLUG GENERATION ON UPDATE
-    if (!payload.slug) {
+
+    // --------- NEW SMART SLUG GENERATION ---------
+    const oldSlug = payload.slug || '';
+
+    const needsRebuild =
+      !oldSlug.trim() ||             // empty slug
+      /^\d+(-\d+)?$/.test(oldSlug);  // numeric slug
+
+    if (needsRebuild) {
       const base =
         payload.title ||
         (payload.lines && payload.lines[0]) ||
@@ -235,9 +245,10 @@ router.put('/:id', async (req, res) => {
       const rawSlug = makeSlug(base);
       payload.slug = await ensureUniqueSlug(rawSlug);
     } else {
-      payload.slug = makeSlug(payload.slug);
-      payload.slug = await ensureUniqueSlug(payload.slug);
+      payload.slug = await ensureUniqueSlug(makeSlug(oldSlug));
     }
+    // -------- END SMART SLUG LOGIC ---------------
+
 
     const updated = await Post.findByIdAndUpdate(
       req.params.id,
