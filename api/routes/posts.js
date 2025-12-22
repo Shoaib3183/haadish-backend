@@ -1,47 +1,17 @@
 // api/routes/posts.js  (ESM)
+
 import express from 'express';
 import Post from '../models/Post.js';
 
 const router = express.Router();
 
-/**
- * BETTER URDU-FRIENDLY SLUG
- */
-function makeSlug(text) {
-  if (!text) return String(Date.now());
+/* =========================================================
+   NOTE:
+   Slug generation logic is CENTRALIZED in Post.js (model)
+   posts.js will NOT generate slug by itself.
+========================================================= */
 
-  let s = String(text).trim();
 
-  // limit length
-  s = s.slice(0, 60);
-
-  // replace spaces with dash
-  s = s.replace(/\s+/g, '-');
-
-  // remove dangerous URL chars only
-  s = s.replace(/[%?#/\\]+/g, '');
-
-  if (!s) s = String(Date.now());
-
-  return s;
-}
-
-/**
- * Ensure slug uniqueness
- */
-async function ensureUniqueSlug(baseSlug) {
-  let slug = baseSlug;
-  const exists = await Post.findOne({ slug }).lean();
-  if (!exists) return slug;
-
-  const suffix = String(Date.now()).slice(-5);
-  slug = `${slug}-${suffix}`;
-
-  const again = await Post.findOne({ slug }).lean();
-  if (!again) return slug;
-
-  return `${baseSlug}-${Date.now()}`;
-}
 
 
 // ---------------------- ROUTES ----------------------
@@ -96,7 +66,7 @@ router.get('/single', async (req, res) => {
     let post = null;
 
     if (id) {
-      post = await Post.findByById(id).lean();
+      post = await Post.findById(id).lean();
     } else if (slug) {
       post = await Post.findOne({ slug }).lean();
     } else {
@@ -139,68 +109,12 @@ router.get('/search', async (req, res) => {
 });
 
 
-// CREATE
+// CREATE  ✅ (slug handled by Post.js middleware)
 router.post('/', async (req, res) => {
   try {
     const payload = { ...req.body };
 
-    // Images normalization
-    payload.headerImageUrl =
-      payload.headerImageUrl ||
-      payload.headerImage ||
-      payload.imageUrl ||
-      payload.imageURL ||
-      payload.image ||
-      null;
-
-    payload.bodyImageUrl1 =
-      payload.bodyImageUrl1 ||
-      payload.bodyImage1 ||
-      payload.bodyImage ||
-      null;
-
-    payload.bodyImageUrl2 =
-      payload.bodyImageUrl2 ||
-      payload.bodyImage2 ||
-      null;
-
-    payload.bodyImageUrl3 =
-      payload.bodyImageUrl3 ||
-      payload.bodyImage3 ||
-      null;
-
-    payload.coverImageUrl = payload.coverImageUrl || payload.headerImageUrl || null;
-
-    // SLUG GENERATION
-    if (!payload.slug) {
-      const base = payload.title || (payload.lines && payload.lines[0]) || String(Date.now());
-      const rawSlug = makeSlug(base);
-      payload.slug = await ensureUniqueSlug(rawSlug);
-    } else {
-      payload.slug = makeSlug(payload.slug);
-      payload.slug = await ensureUniqueSlug(payload.slug);
-    }
-
-    const post = new Post(payload);
-    await post.save();
-
-    res.status(201).json(post);
-
-  } catch (err) {
-    if (err && err.code === 11000) {
-      return res.status(400).json({ error: 'Duplicate key error', details: err.keyValue });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// UPDATE  (with improved slug logic)
-router.put('/:id', async (req, res) => {
-  try {
-    const payload = { ...req.body };
-
-    // Images normalization
+    // Image normalization
     payload.headerImageUrl =
       payload.headerImageUrl ||
       payload.headerImage ||
@@ -228,27 +142,61 @@ router.put('/:id', async (req, res) => {
     payload.coverImageUrl =
       payload.coverImageUrl || payload.headerImageUrl || null;
 
+    // ❌ No slug logic here
+    // ✅ Post.js will auto-generate slug (eraab + word maps)
 
-    // --------- NEW SMART SLUG GENERATION ---------
-    const oldSlug = payload.slug || '';
+    const post = new Post(payload);
+    await post.save();
 
-    const needsRebuild =
-      !oldSlug.trim() ||             // empty slug
-      /^\d+(-\d+)?$/.test(oldSlug);  // numeric slug
+    res.status(201).json(post);
 
-    if (needsRebuild) {
-      const base =
-        payload.title ||
-        (payload.lines && payload.lines[0]) ||
-        String(Date.now());
-
-      const rawSlug = makeSlug(base);
-      payload.slug = await ensureUniqueSlug(rawSlug);
-    } else {
-      payload.slug = await ensureUniqueSlug(makeSlug(oldSlug));
+  } catch (err) {
+    if (err && err.code === 11000) {
+      return res.status(400).json({
+        error: 'Duplicate key error',
+        details: err.keyValue
+      });
     }
-    // -------- END SMART SLUG LOGIC ---------------
+    res.status(500).json({ error: err.message });
+  }
+});
 
+
+// UPDATE  ✅ (slug auto-fix handled by Post.js)
+router.put('/:id', async (req, res) => {
+  try {
+    const payload = { ...req.body };
+
+    // Image normalization
+    payload.headerImageUrl =
+      payload.headerImageUrl ||
+      payload.headerImage ||
+      payload.imageUrl ||
+      payload.imageURL ||
+      payload.image ||
+      null;
+
+    payload.bodyImageUrl1 =
+      payload.bodyImageUrl1 ||
+      payload.bodyImage1 ||
+      payload.bodyImage ||
+      null;
+
+    payload.bodyImageUrl2 =
+      payload.bodyImageUrl2 ||
+      payload.bodyImage2 ||
+      null;
+
+    payload.bodyImageUrl3 =
+      payload.bodyImageUrl3 ||
+      payload.bodyImage3 ||
+      null;
+
+    payload.coverImageUrl =
+      payload.coverImageUrl || payload.headerImageUrl || null;
+
+    // ❌ No slug rebuild logic here
+    // ✅ Post.js middleware will fix empty / numeric slug
 
     const updated = await Post.findByIdAndUpdate(
       req.params.id,
